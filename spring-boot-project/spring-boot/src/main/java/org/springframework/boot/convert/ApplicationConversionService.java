@@ -68,6 +68,7 @@ public class ApplicationConversionService extends FormattingConversionService {
 			synchronized (ApplicationConversionService.class) {
 				sharedInstance = ApplicationConversionService.sharedInstance;
 				if (sharedInstance == null) {
+					// 这里使用了 双重校验
 					sharedInstance = new ApplicationConversionService();
 					ApplicationConversionService.sharedInstance = sharedInstance;
 				}
@@ -85,7 +86,9 @@ public class ApplicationConversionService extends FormattingConversionService {
 	 * ConversionService
 	 */
 	public static void configure(FormatterRegistry registry) {
+		// 添加默认转换器
 		DefaultConversionService.addDefaultConverters(registry);
+		// 添加默认格式化器
 		DefaultFormattingConversionService.addDefaultFormatters(registry);
 		addApplicationFormatters(registry);
 		addApplicationConverters(registry);

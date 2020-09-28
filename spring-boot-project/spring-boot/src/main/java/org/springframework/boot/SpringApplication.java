@@ -265,17 +265,23 @@ public class SpringApplication {
 		this.resourceLoader = resourceLoader;
 		Assert.notNull(primarySources, "PrimarySources must not be null");
 		this.primarySources = new LinkedHashSet<>(Arrays.asList(primarySources));
+		// 根据类路径推断web容器类型
 		this.webApplicationType = WebApplicationType.deduceFromClasspath();
+		// 设置应用上下文初始器
 		setInitializers((Collection) getSpringFactoriesInstances(ApplicationContextInitializer.class));
+		// 设置应用监听器，过程类似于ApplicationContextInitializer
 		setListeners((Collection) getSpringFactoriesInstances(ApplicationListener.class));
+		// 推断main class
 		this.mainApplicationClass = deduceMainApplicationClass();
 	}
 
 	private Class<?> deduceMainApplicationClass() {
 		try {
+			// 获取当前堆栈中的元素
 			StackTraceElement[] stackTrace = new RuntimeException().getStackTrace();
 			for (StackTraceElement stackTraceElement : stackTrace) {
 				if ("main".equals(stackTraceElement.getMethodName())) {
+					// 一直到最外层的main方法
 					return Class.forName(stackTraceElement.getClassName());
 				}
 			}
@@ -293,29 +299,46 @@ public class SpringApplication {
 	 * @return a running {@link ApplicationContext}
 	 */
 	public ConfigurableApplicationContext run(String... args) {
+		// 计数器
 		StopWatch stopWatch = new StopWatch();
 		stopWatch.start();
 		ConfigurableApplicationContext context = null;
+		// 支持SpringBoot启动错误
 		Collection<SpringBootExceptionReporter> exceptionReporters = new ArrayList<>();
+		// 启用java.awt.headless 模式
 		configureHeadlessProperty();
+		// 获取SpringApplicationRunListener，过程同加载ApplicationContextInitializer
 		SpringApplicationRunListeners listeners = getRunListeners(args);
+		// EventPublishingRunListener 广播 应用启动 事件
 		listeners.starting();
 		try {
+			// 封装程序运行参数供后续使用
 			ApplicationArguments applicationArguments = new DefaultApplicationArguments(args);
+			// 准备环境
 			ConfigurableEnvironment environment = prepareEnvironment(listeners, applicationArguments);
+			// 配置spring.beaninfo.ignore 属性值 为空则取true设置到system.property中
 			configureIgnoreBeanInfo(environment);
+			// 打印banner图
 			Banner printedBanner = printBanner(environment);
+			// 创建应用上下文
 			context = createApplicationContext();
+			// 通过Spring.factories实例化错误回调对象
 			exceptionReporters = getSpringFactoriesInstances(SpringBootExceptionReporter.class,
 					new Class[] { ConfigurableApplicationContext.class }, context);
+			// 准备上下文
 			prepareContext(context, environment, listeners, applicationArguments, printedBanner);
+			// 核心：刷新上下文
+			// 调用ApplicationContext 的 refresh 方法
 			refreshContext(context);
+			// 刷新后处理动作
 			afterRefresh(context, applicationArguments);
 			stopWatch.stop();
 			if (this.logStartupInfo) {
 				new StartupInfoLogger(this.mainApplicationClass).logStarted(getApplicationLog(), stopWatch);
 			}
+			// 广播 应用已启动 事件
 			listeners.started(context);
+			// 调用 CommandLineRunner 和 ApplicationRunner 实现类的 run 方法
 			callRunners(context, applicationArguments);
 		}
 		catch (Throwable ex) {
@@ -324,6 +347,7 @@ public class SpringApplication {
 		}
 
 		try {
+			// 广播 应用运行 事件
 			listeners.running(context);
 		}
 		catch (Throwable ex) {
@@ -336,15 +360,32 @@ public class SpringApplication {
 	private ConfigurableEnvironment prepareEnvironment(SpringApplicationRunListeners listeners,
 			ApplicationArguments applicationArguments) {
 		// Create and configure the environment
+		// 获取运行环境，如果不存在则根据容器类型创建不同的运行环境
+		// 在servlet容器中，环境变量优先级:
+		// servletConfigInitParams > servletContextInitParams > jndiProperties > systemProperties > systemEnvironment
 		ConfigurableEnvironment environment = getOrCreateEnvironment();
+		// 配置环境
+		// 属性源优先级：命令行配置 > 默认配置
 		configureEnvironment(environment, applicationArguments.getSourceArgs());
+		// 将环境的propertysources附加到自身的属性源集最前面，以'configurationProperties'为key，
+		// MutablePropertySources转换为SpringConfigurationPropertySources 使得可迭代 以供PropertySourcesPropertyResolver使用
+		// 这里供下面bind使用
 		ConfigurationPropertySources.attach(environment);
+		// 调用SpringApplicationRunListener的环境准备方法
+		// 由EventPublishListener的初始广播器广播 ApplicationEnvironmentPreparedEvent 到各个ApplicationListener的实现类中
+		// 广播机制通过给定的事件类型匹配到所有符合条件的监听器，再循环调用的监听器的onApplicationEvent方法
+		// 如果该广播器中存在线程池则异步调用否则同步调用
 		listeners.environmentPrepared(environment);
+		// 将环境绑定至当前应用程序
+		// 这里名称理解上有点歧义，从源码来看就是将环境中的spring.main开头的属性写入了应用中
 		bindToSpringApplication(environment);
+		// 这里应该也不是针对SpringBoot启动过程，具体作用后面再研究
 		if (!this.isCustomEnvironment) {
 			environment = new EnvironmentConverter(getClassLoader()).convertEnvironmentIfNecessary(environment,
 					deduceEnvironmentClass());
 		}
+		// 刷新环境中的configurationProperties 属性源
+		// 在 环境准备 事件广播后一些监听器将属性源写入了环境中所以这里需要再次attach
 		ConfigurationPropertySources.attach(environment);
 		return environment;
 	}
@@ -362,9 +403,15 @@ public class SpringApplication {
 
 	private void prepareContext(ConfigurableApplicationContext context, ConfigurableEnvironment environment,
 			SpringApplicationRunListeners listeners, ApplicationArguments applicationArguments, Banner printedBanner) {
+		// 上下文环境设置
 		context.setEnvironment(environment);
+		// 上下文后置处理
+		// 主要是加载 类名生成器、资源加载器、类加载器和转换服务
 		postProcessApplicationContext(context);
+		// 应用初始器
+		// 调用应用上下文初始器的初始化方法
 		applyInitializers(context);
+		// 广播 上下文准备 事件
 		listeners.contextPrepared(context);
 		if (this.logStartupInfo) {
 			logStartupInfo(context.getParent() == null);
@@ -383,14 +430,18 @@ public class SpringApplication {
 		// Load the sources
 		Set<Object> sources = getAllSources();
 		Assert.notEmpty(sources, "Sources must not be empty");
+		// 上下文加载配置
 		load(context, sources.toArray(new Object[0]));
+		// 广播 上下文加载完成 事件
 		listeners.contextLoaded(context);
 	}
 
 	private void refreshContext(ConfigurableApplicationContext context) {
+
 		refresh(context);
 		if (this.registerShutdownHook) {
 			try {
+				// 注册关机hook
 				context.registerShutdownHook();
 			}
 			catch (AccessControlException ex) {
@@ -417,8 +468,12 @@ public class SpringApplication {
 	private <T> Collection<T> getSpringFactoriesInstances(Class<T> type, Class<?>[] parameterTypes, Object... args) {
 		ClassLoader classLoader = getClassLoader();
 		// Use names and ensure unique to protect against duplicates
+		// 加载META-INF/spring.factories中的所有配置，通过 , 分割属性值
+		// 封装成map形式，通过类名获取到对应的实现类名List
 		Set<String> names = new LinkedHashSet<>(SpringFactoriesLoader.loadFactoryNames(type, classLoader));
+		// 反射实例化对象
 		List<T> instances = createSpringFactoriesInstances(type, parameterTypes, classLoader, args, names);
+		// 排序
 		AnnotationAwareOrderComparator.sort(instances);
 		return instances;
 	}
@@ -469,10 +524,13 @@ public class SpringApplication {
 	 */
 	protected void configureEnvironment(ConfigurableEnvironment environment, String[] args) {
 		if (this.addConversionService) {
+			// 获取 应用转换服务 共享实例
 			ConversionService conversionService = ApplicationConversionService.getSharedInstance();
 			environment.setConversionService((ConfigurableConversionService) conversionService);
 		}
+		// 配置属性源
 		configurePropertySources(environment, args);
+		// 配置生效的配置文件环境
 		configureProfiles(environment, args);
 	}
 
@@ -485,11 +543,14 @@ public class SpringApplication {
 	 */
 	protected void configurePropertySources(ConfigurableEnvironment environment, String[] args) {
 		MutablePropertySources sources = environment.getPropertySources();
+		// 存在默认配置则写入（最低优先级）
 		if (this.defaultProperties != null && !this.defaultProperties.isEmpty()) {
 			sources.addLast(new MapPropertySource("defaultProperties", this.defaultProperties));
 		}
+		// 存在命令行配置
 		if (this.addCommandLineProperties && args.length > 0) {
 			String name = CommandLinePropertySource.COMMAND_LINE_PROPERTY_SOURCE_NAME;
+			// 已经包含则进行替换
 			if (sources.contains(name)) {
 				PropertySource<?> source = sources.get(name);
 				CompositePropertySource composite = new CompositePropertySource(name);
@@ -499,6 +560,7 @@ public class SpringApplication {
 				sources.replace(name, composite);
 			}
 			else {
+				// 写入（最高优先级）
 				sources.addFirst(new SimpleCommandLinePropertySource(args));
 			}
 		}
@@ -514,9 +576,11 @@ public class SpringApplication {
 	 * @see org.springframework.boot.context.config.ConfigFileApplicationListener
 	 */
 	protected void configureProfiles(ConfigurableEnvironment environment, String[] args) {
+		// 获取当前环境下生效的配置文件属性(通过读取环境中的spring.profiles.active属性值)
 		environment.getActiveProfiles(); // ensure they are initialized
 		// But these ones should go first (last wins in a property key clash)
 		Set<String> profiles = new LinkedHashSet<>(this.additionalProfiles);
+		// 将生效的配置文件属性写入additionalProfiless
 		profiles.addAll(Arrays.asList(environment.getActiveProfiles()));
 		environment.setActiveProfiles(StringUtils.toStringArray(profiles));
 	}
@@ -534,6 +598,7 @@ public class SpringApplication {
 	 */
 	protected void bindToSpringApplication(ConfigurableEnvironment environment) {
 		try {
+			// 获取之前attach适配的configurationProperties 用于组装binder
 			Binder.get(environment).bind("spring.main", Bindable.ofInstance(this));
 		}
 		catch (Exception ex) {

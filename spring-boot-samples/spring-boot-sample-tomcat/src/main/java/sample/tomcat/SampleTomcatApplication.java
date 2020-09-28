@@ -49,6 +49,7 @@ public class SampleTomcatApplication {
 	}
 
 	public static void main(String[] args) {
+		// 程序启动主入口
 		SpringApplication.run(SampleTomcatApplication.class, args);
 	}
 

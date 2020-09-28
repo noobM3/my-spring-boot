@@ -198,6 +198,7 @@ public class Binder {
 		Assert.notNull(name, "Name must not be null");
 		Assert.notNull(target, "Target must not be null");
 		handler = (handler != null) ? handler : BindHandler.DEFAULT;
+		// 创建binder上下文，供bindHandler使用
 		Context context = new Context();
 		T bound = bind(name, target, handler, context, false);
 		return BindResult.of(bound);
@@ -205,12 +206,16 @@ public class Binder {
 
 	protected final <T> T bind(ConfigurationPropertyName name, Bindable<T> target, BindHandler handler, Context context,
 			boolean allowRecursiveBinding) {
+		// 清除context中的configurationProperty
+		// bindbean中会循环调用该方法，所以需要每次都清空
 		context.clearConfigurationProperty();
 		try {
+			// defaultBindHandler
 			target = handler.onStart(name, target, context);
 			if (target == null) {
 				return null;
 			}
+			// 进行绑定
 			Object bound = bindObject(name, target, handler, context, allowRecursiveBinding);
 			return handleBindResult(name, target, handler, context, bound);
 		}
@@ -245,7 +250,9 @@ public class Binder {
 
 	private <T> Object bindObject(ConfigurationPropertyName name, Bindable<T> target, BindHandler handler,
 			Context context, boolean allowRecursiveBinding) {
-		ConfigurationProperty property = findProperty(name, context);
+		// 获取指定名称的配置属性
+		ConfigurationProperty property =  findProperty(name, context);
+		// 如果没有获取到并且不包含name开头的属性则返回null
 		if (property == null && containsNoDescendantOf(context.getSources(), name)) {
 			return null;
 		}
@@ -255,6 +262,7 @@ public class Binder {
 		}
 		if (property != null) {
 			try {
+				// 绑定属性到context中
 				return bindProperty(target, context, property);
 			}
 			catch (ConverterNotFoundException ex) {
@@ -266,6 +274,7 @@ public class Binder {
 				throw ex;
 			}
 		}
+		// 绑定属性
 		return bindBean(name, target, handler, context, allowRecursiveBinding);
 	}
 
@@ -297,6 +306,8 @@ public class Binder {
 		if (name.isEmpty()) {
 			return null;
 		}
+		// 这里从context中获取配置属性源，如果没找到则返回binder.sources
+		// binder.sources在创建binder时从environment中获取
 		for (ConfigurationPropertySource source : context.getSources()) {
 			ConfigurationProperty property = source.getConfigurationProperty(name);
 			if (property != null) {
@@ -319,6 +330,7 @@ public class Binder {
 		if (containsNoDescendantOf(context.getSources(), name) || isUnbindableBean(name, target, context)) {
 			return null;
 		}
+		// 这里会循环propertyName（lambda 不清楚属性名称从哪里取到的，望指出），配置文件中有匹配的spring.main+propertyName的属性则会进行绑定
 		BeanPropertyBinder propertyBinder = (propertyName, propertyTarget) -> bind(name.append(propertyName),
 				propertyTarget, handler, context, false);
 		Class<?> type = target.getType().resolve(Object.class);
@@ -362,6 +374,7 @@ public class Binder {
 	 * @return a {@link Binder} instance
 	 */
 	public static Binder get(Environment environment) {
+		// 获取之前attach适配的configurationProperties 用于组装binder
 		return new Binder(ConfigurationPropertySources.get(environment),
 				new PropertySourcesPlaceholdersResolver(environment));
 	}
